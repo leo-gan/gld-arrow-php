@@ -1,0 +1,52 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require dirname(__DIR__) . '/src/bootstrap.php';
+
+use Gld\Arrow\Codegen\Emit;
+use Gld\Arrow\Schema\Load;
+
+$schema = null;
+$out = null;
+for ($i = 1; $i < $argc; $i++) {
+    $arg = $argv[$i];
+    if ($arg === '--schema' && isset($argv[$i + 1])) {
+        $schema = $argv[++$i];
+        continue;
+    }
+    if ($arg === '--out' && isset($argv[$i + 1])) {
+        $out = $argv[++$i];
+        continue;
+    }
+    if ($arg === '--help' || $arg === '-h') {
+        fwrite(STDOUT, "gld-arrowgen-php --schema FILE --out DIR\n");
+        exit(0);
+    }
+    fwrite(STDERR, "unknown argument {$arg}\n");
+    exit(2);
+}
+if ($schema === null || $out === null) {
+    fwrite(STDERR, "gld-arrowgen-php --schema FILE --out DIR\n");
+    exit(2);
+}
+$raw = file_get_contents($schema);
+if ($raw === false) {
+    fwrite(STDERR, "cannot read schema\n");
+    exit(1);
+}
+$doc = json_decode($raw, true);
+if (!is_array($doc)) {
+    fwrite(STDERR, "schema is not a JSON object\n");
+    exit(1);
+}
+$table = Load::json($raw);
+$name = Emit::ident(Load::title($doc), true);
+if (!is_dir($out) && !mkdir($out, 0777, true) && !is_dir($out)) {
+    fwrite(STDERR, "cannot create output directory\n");
+    exit(1);
+}
+$path = rtrim($out, '/') . '/' . $name . '.php';
+file_put_contents($path, Emit::php($table, $name));
+fwrite(STDOUT, $path . "\n");
