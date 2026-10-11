@@ -1,0 +1,25 @@
+# Local notes and scratch. Never commit.
+temp/
+
+# Secrets. Never commit.
+.env
+.env.*
+!.env.example
+
+# Composer
+/vendor/
+composer.lock
+
+# PHP
+.phpunit.cache/
+.phpunit.result.cache
+*.phpunit.cache
+
+# MkDocs
+site/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
