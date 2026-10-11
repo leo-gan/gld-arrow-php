@@ -77,7 +77,10 @@ final class Values
                 continue;
             }
             $id = self::intAt($idx, $i, $width, $f->dictIndexSigned);
-            $out[] = $values[$id] ?? null;
+            if ($id < 0 || !array_key_exists($id, $values)) {
+                throw new ArrowException(Kind::RANGE, $id, 'dictionary index');
+            }
+            $out[] = $values[$id];
         }
         return $out;
     }
