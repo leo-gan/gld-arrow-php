@@ -37,4 +37,4 @@ A compressed buffer starts with the uncompressed length as a little-endian `int6
 
 ## Repeated metadata
 
-Decoding the same schema message or the same record-batch metadata twice reuses the parsed FlatBuffer vectors. The cache holds at most 16 entries. Uncompressed buffer bytes are views into the input string when that string is still the columnar byte arena. A later `addBuf` of new bytes copies the arena.
+Decoding the same schema message or the same record-batch metadata twice reuses the parsed FlatBuffer vectors. The cache holds at most 16 entries. Uncompressed buffer bytes are views into the input string when that string is still the columnar byte arena. A later `addBuf` of new bytes copies the arena. Writing the same table again returns the IPC stream from the first encode when the schema, buffer spans, and array layout are unchanged. Reading that same byte string again copies the decoded columnar instead of parsing the FlatBuffers a second time. Changing a field, a buffer, or the byte arena invalidates the stream.

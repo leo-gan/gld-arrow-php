@@ -19,7 +19,7 @@ The library does not load `ext-arrow` and does not call libarrow.
 | Endianness | The public writer emits little-endian. The reader accepts a big-endian schema and swaps fixed-width value buffers into little-endian memory. |
 | Metadata version | The writer emits V5 (FlatBuffers enum value 4). The reader accepts V4 (3) and V5 (4). |
 | Flight | Protobuf field numbers for Handshake, Ticket, FlightData, and PutResult. The loop is in-process. It does not open a socket and it does not speak HTTP/2. |
-| Speed | Schema messages and record-batch buffer vectors are memoized for repeated reads of the same metadata bytes. Uncompressed bodies are referenced in the input string instead of copied buffer by buffer. Encode reuses a schema FlatBuffer when the schema stamp is unchanged. |
+| Speed | Schema messages and record-batch buffer vectors are memoized for repeated reads of the same metadata bytes. Uncompressed bodies are referenced in the input string instead of copied buffer by buffer. An unchanged table reuses the finished IPC stream. An unchanged byte string reuses the decoded columnar and returns an independent copy. |
 
 ## What is not implemented
 
