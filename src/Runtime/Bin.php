@@ -17,13 +17,13 @@ final class Bin
     public static function u16(string $s, int $i): int
     {
         self::need($s, $i, 2);
-        return unpack('v', substr($s, $i, 2))[1];
+        return unpack('v', $s, $i)[1];
     }
 
     public static function u32(string $s, int $i): int
     {
         self::need($s, $i, 4);
-        return unpack('V', substr($s, $i, 4))[1];
+        return unpack('V', $s, $i)[1];
     }
 
     public static function i32(string $s, int $i): int
@@ -38,7 +38,7 @@ final class Bin
     public static function i64(string $s, int $i): int
     {
         self::need($s, $i, 8);
-        return unpack('q', substr($s, $i, 8))[1];
+        return unpack('q', $s, $i)[1];
     }
 
     public static function need(string $s, int $i, int $n): void
