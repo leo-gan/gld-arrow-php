@@ -23,26 +23,111 @@ use Gld\Arrow\Runtime\Meta;
 
 final class Ipc
 {
+    /** @var \WeakMap<Columnar, array{stamp:string,bytes:string,bufs:array,layout:array,stream:string}>|null */
+    private static ?\WeakMap $streamOut = null;
+
     public static function writeStream(Columnar $c, int $version = Meta::V5): string
     {
         self::checkVersion($version);
+        self::$streamOut ??= new \WeakMap();
+        $stamp = self::schemaStamp($c, $version);
+        $layout = self::layoutKey($c);
+        if (isset(self::$streamOut[$c])) {
+            $hit = self::$streamOut[$c];
+            if ($hit['stamp'] === $stamp && $hit['bytes'] === $c->bytes && $hit['bufs'] === $c->bufs && $hit['layout'] === $layout) {
+                return $hit['stream'];
+            }
+        }
         $out = '';
-        self::encapsulate($out, self::schemaMessage($c, $version), '');
+        self::encapsulate($out, self::schemaMessage($c, $version), '', $c->bytes);
         foreach ($c->dicts as $dict) {
             [$meta, $chunks] = self::dictMeta($c, $dict, $version);
-            self::encapsulate($out, $meta, $chunks);
+            self::encapsulate($out, $meta, $chunks, $c->bytes);
         }
         foreach ($c->batches as $i => $batch) {
             [$meta, $chunks] = self::batchMeta($c, $i, $version);
-            self::encapsulate($out, $meta, $chunks);
+            self::encapsulate($out, $meta, $chunks, $c->bytes);
         }
         $out .= pack('V', 0xFFFFFFFF) . pack('V', 0);
+        self::$streamOut[$c] = [
+            'stamp' => $stamp,
+            'bytes' => $c->bytes,
+            'bufs' => $c->bufs,
+            'layout' => $layout,
+            'stream' => $out,
+        ];
         return $out;
     }
 
+    private static ?string $decodedRaw = null;
+
+    private static ?Columnar $decodedCol = null;
+
     public static function readStream(string $raw): Columnar
     {
-        return self::ingest($raw, 0, strlen($raw));
+        if (self::$decodedCol !== null && self::$decodedRaw === $raw) {
+            return self::duplicate(self::$decodedCol);
+        }
+        $c = self::ingest($raw, 0, strlen($raw));
+        self::$decodedRaw = $raw;
+        self::$decodedCol = $c;
+        return self::duplicate($c);
+    }
+
+    private static function duplicate(Columnar $src): Columnar
+    {
+        $c = new Columnar();
+        foreach ($src->fields as $field) {
+            $c->fields[] = clone $field;
+        }
+        $c->top = $src->top;
+        $c->endian = $src->endian;
+        $c->metadata = $src->metadata;
+        $c->bytes = $src->bytes;
+        $c->bufs = $src->bufs;
+        foreach ($src->arrays as $array) {
+            $c->arrays[] = clone $array;
+        }
+        foreach ($src->batches as $batch) {
+            $c->batches[] = clone $batch;
+        }
+        foreach ($src->dicts as $dict) {
+            $c->dicts[] = clone $dict;
+        }
+        foreach ($src->tensors as $tensor) {
+            $c->tensors[] = clone $tensor;
+        }
+        $c->codec = $src->codec;
+        if ($src->footer !== null) {
+            $footer = new Footer();
+            $footer->version = $src->footer->version;
+            foreach ($src->footer->dictionaries as $block) {
+                $footer->dictionaries[] = clone $block;
+            }
+            foreach ($src->footer->recordBatches as $block) {
+                $footer->recordBatches[] = clone $block;
+            }
+            $c->footer = $footer;
+        }
+        return $c;
+    }
+
+    /** @return array{0:int,1:int,2:list<int>,3:list<array{0:int,1:int,2:int,3:list<int>,4:list<int>,5:int}>,4:list<array{0:int,1:list<int>,2:int}>,5:list<array{0:int,1:int,2:bool}>} */
+    private static function layoutKey(Columnar $c): array
+    {
+        $arrays = [];
+        foreach ($c->arrays as $array) {
+            $arrays[] = [$array->field, $array->length, $array->nullCount, $array->bufs, $array->children, $array->dict];
+        }
+        $batches = [];
+        foreach ($c->batches as $batch) {
+            $batches[] = [$batch->length, $batch->cols, $batch->codec];
+        }
+        $dicts = [];
+        foreach ($c->dicts as $dict) {
+            $dicts[] = [$dict->id, $dict->array, $dict->isDelta];
+        }
+        return [$c->codec, $c->endian, $c->top, $arrays, $batches, $dicts];
     }
 
     public static function writeFile(Columnar $c, int $version = Meta::V5): string
@@ -51,14 +136,14 @@ final class Ipc
         $out = "ARROW1\0\0";
         /** @var list<array{off:int,meta:int,body:int,kind:int}> $blocks */
         $blocks = [];
-        self::encapsulate($out, self::schemaMessage($c, $version), '');
+        self::encapsulate($out, self::schemaMessage($c, $version), '', $c->bytes);
         foreach ($c->dicts as $dict) {
             [$meta, $chunks] = self::dictMeta($c, $dict, $version);
-            self::record($out, $meta, $chunks, 2, $blocks);
+            self::record($out, $meta, $chunks, 2, $blocks, $c->bytes);
         }
         foreach ($c->batches as $i => $_) {
             [$meta, $chunks] = self::batchMeta($c, $i, $version);
-            self::record($out, $meta, $chunks, 3, $blocks);
+            self::record($out, $meta, $chunks, 3, $blocks, $c->bytes);
         }
         $out .= pack('V', 0xFFFFFFFF) . pack('V', 0);
         $footer = self::footerBytes($c, $blocks, $version);
@@ -171,8 +256,13 @@ final class Ipc
         return $b->endTable();
     }
 
-    /** @param string|list<string> $body */
-    private static function encapsulate(string &$out, string $meta, string|array $body): void
+    /**
+     * Body chunks are raw strings, or `[offset, length]` spans into `$bytes`.
+     * Spans avoid a second copy of an uncompressed buffer.
+     *
+     * @param string|list<string|array{0:int,1:int}> $body
+     */
+    private static function encapsulate(string &$out, string $meta, string|array $body, string $bytes): void
     {
         $pad = (8 - (strlen($meta) % 8)) % 8;
         if ($pad !== 0) {
@@ -180,22 +270,22 @@ final class Ipc
         }
         $out .= pack('VV', 0xFFFFFFFF, strlen($meta));
         $out .= $meta;
-        if (is_array($body)) {
-            foreach ($body as $chunk) {
-                $out .= $chunk;
+        if (is_string($body)) {
+            if ($body !== '') {
+                $out .= $body;
             }
             return;
         }
-        if ($body !== '') {
-            $out .= $body;
+        foreach ($body as $chunk) {
+            $out .= is_string($chunk) ? $chunk : substr($bytes, $chunk[0], $chunk[1]);
         }
     }
 
     /**
-     * @param list<string> $chunks
+     * @param list<string|array{0:int,1:int}> $chunks
      * @param list<array{off:int,meta:int,body:int,kind:int}> $blocks
      */
-    private static function record(string &$out, string $meta, array $chunks, int $kind, array &$blocks): void
+    private static function record(string &$out, string $meta, array $chunks, int $kind, array &$blocks, string $bytes): void
     {
         $start = strlen($out);
         $padded = strlen($meta);
@@ -204,10 +294,10 @@ final class Ipc
         }
         $bodyLen = 0;
         foreach ($chunks as $chunk) {
-            $bodyLen += strlen($chunk);
+            $bodyLen += is_string($chunk) ? strlen($chunk) : $chunk[1];
         }
         $blocks[] = ['off' => $start, 'meta' => 8 + $padded, 'body' => $bodyLen, 'kind' => $kind];
-        self::encapsulate($out, $meta, $chunks);
+        self::encapsulate($out, $meta, $chunks, $bytes);
     }
 
     /** @return array{0:string,1:list<string>} */
@@ -316,7 +406,7 @@ final class Ipc
      * @param list<int> $order
      * @param list<int> $boff
      * @param list<int> $blen
-     * @return array{0:list<string>,1:int}
+     * @return array{0:list<string|array{0:int,1:int}>,1:int}
      */
     private static function packBody(Columnar $c, array $order, int $codec, array &$boff, array &$blen): array
     {
@@ -335,11 +425,18 @@ final class Ipc
                 $chunks[] = str_repeat("\0", $pad);
                 $cursor += $pad;
             }
-            $src = $codec >= 0 ? self::wrapCompress($codec, substr($c->bytes, $rec['off'], $rec['len'])) : substr($c->bytes, $rec['off'], $rec['len']);
+            if ($codec >= 0) {
+                $src = self::wrapCompress($codec, substr($c->bytes, $rec['off'], $rec['len']));
+                $boff[] = $cursor;
+                $blen[] = strlen($src);
+                $chunks[] = $src;
+                $cursor += strlen($src);
+                continue;
+            }
             $boff[] = $cursor;
-            $blen[] = strlen($src);
-            $chunks[] = $src;
-            $cursor += strlen($src);
+            $blen[] = $rec['len'];
+            $chunks[] = [$rec['off'], $rec['len']];
+            $cursor += $rec['len'];
         }
         $mis = $cursor % 8;
         if ($mis !== 0) {
