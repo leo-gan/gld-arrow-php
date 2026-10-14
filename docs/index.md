@@ -11,3 +11,4 @@ The runtime reads and writes the Arrow columnar format, the IPC stream, the IPC 
 | [Examples](examples.md) | A record batch and a generated class. |
 | [Techniques](techniques.md) | Layout, alignment, compression, and limits. |
 | [Test data](test-data.md) | The streams checked into this repository. |
+| [Publishing](publishing.md) | Packagist registration and the release workflow. |
