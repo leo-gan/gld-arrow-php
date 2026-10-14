@@ -35,8 +35,6 @@ After release `0.2.0` is on Packagist:
 composer require leo-gan/gld-arrow-php
 ```
 
-Registration and the release workflow: [docs/publishing.md](docs/publishing.md).
-
 ## What it reads and writes
 
 | Surface | Behavior |
