@@ -4,6 +4,12 @@ The package name is `leo-gan/gld-arrow-php`. The PHP namespace is `Gld\Arrow`. T
 
 Requires PHP 8.3 or newer. `ext-arrow` is not used.
 
+## Install
+
+```bash
+composer require leo-gan/gld-arrow-php
+```
+
 ## Develop from this repository
 
 ```bash
