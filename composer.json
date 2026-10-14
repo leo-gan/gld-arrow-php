@@ -1,6 +1,8 @@
 {
   "name": "leo-gan/gld-arrow-php",
   "description": "From-scratch Apache Arrow IPC, tensor, and Flight messages for PHP.",
+  "keywords": ["arrow", "serialization", "ipc"],
+  "homepage": "https://leo-gan.github.io/gld-arrow-php/",
   "type": "library",
   "license": "MIT",
   "version": "0.2.0",
@@ -19,6 +21,12 @@
   },
   "bin": [
     "bin/gld-arrowgen-php"
+  ],
+  "authors": [
+    {
+      "name": "Leonid Ganeline",
+      "email": "leo.gan.57@gmail.com"
+    }
   ],
   "scripts": {
     "test": "php tests/run.php"
