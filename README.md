@@ -1,5 +1,7 @@
 # gld-arrow-php
 
+[Serialization](https://leo-gan.github.io/serialization/) is the hub for the theory, the history, and the benchmarks.
+
 A from-scratch Apache Arrow library for PHP 8.3.
 The runtime and the code generator are written in PHP. They do not wrap, link,
 or call the Arrow C++ library, `ext-arrow`, or any other C Arrow extension.
