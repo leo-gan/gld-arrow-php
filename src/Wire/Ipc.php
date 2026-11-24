@@ -187,20 +187,19 @@ final class Ipc
         return $i >= 0 && $i + 6 <= strlen($raw) && substr($raw, $i, 6) === 'ARROW1';
     }
 
-    /** @var \WeakMap<Columnar, array{stamp:string,meta:string}>|null */
-    private static ?\WeakMap $schemaCache = null;
+    /** Schema flatbuffers depend on types, not row bytes. Share them across tables. */
+    private static array $schemaByStamp = [];
 
     private static function schemaMessage(Columnar $c, int $version): string
     {
-        self::$schemaCache ??= new \WeakMap();
         $stamp = self::schemaStamp($c, $version);
-        if (isset(self::$schemaCache[$c]) && self::$schemaCache[$c]['stamp'] === $stamp) {
-            return self::$schemaCache[$c]['meta'];
+        if (isset(self::$schemaByStamp[$stamp])) {
+            return self::$schemaByStamp[$stamp];
         }
         $b = new FBBuilder();
         $header = SchemaFb::schema($b, $c);
         $meta = $b->finish(self::message($b, 1, $header, 0, $version));
-        self::$schemaCache[$c] = ['stamp' => $stamp, 'meta' => $meta];
+        self::$schemaByStamp[$stamp] = $meta;
         return $meta;
     }
 
