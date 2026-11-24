@@ -537,5 +537,26 @@ check($mb->metadata === [['schema', 'yes']] && $mb->fields[$mb->top[0]]->metadat
 check(Frame::decompress(Codec::LZ4, Frame::compress(Codec::LZ4, 'xyz')) === 'xyz', 'frame lz4');
 check(Frame::decompress(Codec::ZSTD, Frame::compress(Codec::ZSTD, '')) === '', 'frame zstd empty');
 
+$one = (new TableBuilder())
+    ->bools('f_bool', [true], false)
+    ->int32('n', [7], false)
+    ->utf8('s', ['ada'], false)
+    ->build();
+$other = (new TableBuilder())
+    ->bools('f_bool', [false], false)
+    ->int32('n', [8], false)
+    ->utf8('s', ['bob'], false)
+    ->build();
+$plan = Arrow::compile($one);
+$payloads = [];
+foreach (Arrow::compile($other)->pieces as $piece) {
+    $payloads[] = $other->buf($piece['id']);
+}
+$stamped = $plan->writePayloads($payloads);
+check($plan->packet === Arrow::writeStream($one), 'template matches writeStream');
+check($stamped === Arrow::writeStream($other), 'template stamps a second row');
+check($plan->readPayloads((string) $stamped) === $payloads, 'template reads payloads');
+check($plan->writePayloads(['x']) === null, 'template rejects a short payload');
+
 echo "\n$passed passed, $failed failed\n";
 exit($failed === 0 ? 0 : 1);
