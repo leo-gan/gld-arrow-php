@@ -24,6 +24,11 @@ $back = Message::decode($raw);
 
 `encodedLength()` is `strlen($row->encode())`.
 
+`Arrow::compile($columnar)` freezes the schema framing and the buffer lengths.
+`writePayloads` copies that framing and the new column bytes when every buffer
+keeps the length it had at compile time. A different length returns null, and
+the caller uses `Arrow::writeStream`.
+
 ## Several columns
 
 ```php

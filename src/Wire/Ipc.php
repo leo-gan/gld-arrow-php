@@ -59,6 +59,94 @@ final class Ipc
         return $out;
     }
 
+    /**
+     * Framing for $c. Later rows with the same buffer lengths reuse it.
+     * Dictionaries and compressed bodies are left on the slow path (no pieces).
+     */
+    public static function compile(Columnar $c, int $version = Meta::V5): StreamTemplate
+    {
+        self::checkVersion($version);
+        if ($c->dicts !== [] || $c->codec >= 0) {
+            return new StreamTemplate(self::writeStream($c, $version), []);
+        }
+        foreach ($c->batches as $batch) {
+            if ($batch->codec >= 0) {
+                return new StreamTemplate(self::writeStream($c, $version), []);
+            }
+        }
+        $pieces = [];
+        $out = '';
+        self::encapsulate($out, self::schemaMessage($c, $version), '', $c->bytes);
+        foreach ($c->batches as $i => $batch) {
+            $nodesL = [];
+            $nodesN = [];
+            $order = [];
+            $variadic = [];
+            foreach ($batch->cols as $aid) {
+                $arr = $c->arrays[$aid];
+                self::emitArray($c, $c->fields[$arr->field], $aid, false, $nodesL, $nodesN, $order, $variadic, 0);
+            }
+            $boff = [];
+            $blen = [];
+            [$chunks, $bodyLen] = self::packBody($c, $order, Codec::NONE, $boff, $blen);
+            $dummy = new DictRef(-1, -1, false);
+            $meta = self::batchMessage(
+                $batch->length,
+                $nodesL,
+                $nodesN,
+                $boff,
+                $blen,
+                $variadic,
+                Codec::NONE,
+                $bodyLen,
+                3,
+                $dummy,
+                $version,
+            );
+            self::paintPieces($out, $meta, $chunks, $c, $order, $pieces);
+        }
+        $out .= pack('V', 0xFFFFFFFF) . pack('V', 0);
+        return new StreamTemplate($out, $pieces);
+    }
+
+    /**
+     * @param list<string|array{0:int,1:int}> $chunks
+     * @param list<int> $order
+     * @param list<array{off:int,len:int,id:int}> $pieces
+     */
+    private static function paintPieces(string &$out, string $meta, array $chunks, Columnar $c, array $order, array &$pieces): void
+    {
+        $pad = (8 - (strlen($meta) % 8)) % 8;
+        if ($pad !== 0) {
+            $meta .= str_repeat("\0", $pad);
+        }
+        $out .= pack('V', 0xFFFFFFFF) . pack('V', strlen($meta)) . $meta;
+        $ids = [];
+        foreach ($order as $id) {
+            if ($c->bufs[$id]['len'] !== 0) {
+                $ids[] = $id;
+            }
+        }
+        $span = 0;
+        foreach ($chunks as $chunk) {
+            if (is_string($chunk)) {
+                $out .= $chunk;
+                continue;
+            }
+            if (!isset($ids[$span])) {
+                throw new ArrowException(Kind::SCHEMA, $span, 'template span');
+            }
+            $id = $ids[$span];
+            $span++;
+            $len = $chunk[1];
+            $pieces[] = ['off' => strlen($out), 'len' => $len, 'id' => $id];
+            $out .= substr($c->bytes, $chunk[0], $len);
+        }
+        if ($span !== count($ids)) {
+            throw new ArrowException(Kind::SCHEMA, $span, 'template spans');
+        }
+    }
+
     private static ?string $decodedRaw = null;
 
     private static ?Columnar $decodedCol = null;

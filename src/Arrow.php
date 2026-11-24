@@ -6,6 +6,7 @@ namespace Gld\Arrow;
 
 use Gld\Arrow\Runtime\Columnar;
 use Gld\Arrow\Wire\Ipc;
+use Gld\Arrow\Wire\StreamTemplate;
 use Gld\Arrow\Wire\TensorIo;
 
 final class Arrow
@@ -13,6 +14,12 @@ final class Arrow
     public static function writeStream(Columnar $c): string
     {
         return Ipc::writeStream($c);
+    }
+
+    /** Fixed-width framing for a table. Payloads with the same lengths reuse it. */
+    public static function compile(Columnar $c): StreamTemplate
+    {
+        return Ipc::compile($c);
     }
 
     public static function readStream(string $bytes): Columnar
